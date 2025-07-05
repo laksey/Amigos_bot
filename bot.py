@@ -1,78 +1,89 @@
-import datetime
+import logging
 import random
-import csv
+import datetime
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 TOKEN = "8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk"
-PROJECTS_CSV = "projects.csv"
-ADMIN_NICK = "@ellobodefuego"
+
+# Примеры проектов
+EXAMPLE_PROJECTS = [
+    ("Проект Альфа", "@user1", "2025-07-08"),
+    ("Проект Бета", "@user2", "2025-07-10"),
+    ("Проект Гамма", "@user3", "2025-07-12"),
+    ("Проект Дельта", "@user4", "2025-07-14"),
+]
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def get_projects():
-    projects = []
-    with open(PROJECTS_CSV, newline='', encoding='utf-8') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            projects.append({
-                "Проект": row["название проекта"],
-                "Ответственный": row["ответственный (ник тг)"],
-                "Дата": row["дата сдачи"]
-            })
-    return projects
+def get_random_projects(n=3):
+    return random.sample(EXAMPLE_PROJECTS, n)
 
 
-def get_reports_by_day(target_day: int):
-    return [p for p in get_projects() if int(p["Дата"]) == target_day]
+def format_projects(projects):
+    return "\n".join(
+        [f"• {name} — {user}, дедлайн {date}" for name, user, date in projects]
+    )
 
 
-async def send_monday_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    today = datetime.date.today()
-    this_week = get_reports_by_day(today.day)
-    last_week = get_reports_by_day((today - datetime.timedelta(days=7)).day)
-
-    msg = "📝 На этой неделе нужно сдать отчеты:\n"
-    for p in this_week:
-        msg += f"— *{p['Проект']}* ({p['Ответственный']})\n"
-
-    msg += "\n💸 Напоминание об оплате по проектам с отчетами на прошлой неделе:\n"
-    for p in last_week:
-        msg += f"— *{p['Проект']}* ({p['Ответственный']})\n"
-
-    await update.message.reply_text(msg, parse_mode="Markdown")
-
-
-async def send_confirmation_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    last_week = get_reports_by_day((datetime.date.today() - datetime.timedelta(days=7)).day)
-
-    msg = f"🔁 Завершается неделя. {ADMIN_NICK}, подтверди, пожалуйста, что отчеты сданы:\n"
-    for p in last_week:
-        msg += f"— *{p['Проект']}* ({p['Ответственный']})\n"
-
-    await update.message.reply_text(msg, parse_mode="Markdown")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        "👋 Привет! Я — ClientOpsBot.\n\n"
+        "Я буду напоминать аккаунт-менеджерам об отчетах по проектам:\n"
+        "• За 5 дней до даты сдачи\n"
+        "• В день сдачи отчета\n\n"
+        "Доступные команды:\n"
+        "/test_5days — проверка напоминания за 5 дней\n"
+        "/test_today — проверка напоминания в день сдачи\n"
+        "/weekly_start — старт недели, список задач на эту неделю\n"
+        "/weekly_end — завершение недели, подтверждение сдачи\n\n"
+        "Бот активирован. Ожидайте уведомлений в соответствии с графиком."
+    )
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
 
 
-def test_random_data():
-    with open(PROJECTS_CSV, 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = ["название проекта", "ответственный (ник тг)", "дата сдачи"]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for i in range(5):
-            writer.writerow({
-                "название проекта": f"Проект {i+1}",
-                "ответственный (ник тг)": f"@user{i+1}",
-                "дата сдачи": str(random.randint(1, 31))
-            })
+async def test_5days(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    projects = get_random_projects()
+    msg = "⏰ Напоминание: через 5 дней сдача отчетов по проектам:\n\n"
+    msg += format_projects(projects)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
 
 
-def run_bot():
-    test_random_data()
+async def test_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    projects = get_random_projects()
+    msg = "🚨 Напоминание: сегодня нужно сдать отчеты по проектам:\n\n"
+    msg += format_projects(projects)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
 
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", send_monday_report))
-    app.add_handler(CommandHandler("confirm", send_confirmation_request))
-    app.run_polling()
+
+async def weekly_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    projects = get_random_projects()
+    payments = get_random_projects(2)
+    msg = "📝 На этой неделе нужно сдать отчеты:\n\n"
+    msg += format_projects(projects)
+    msg += "\n\n💰 Напоминаем про оплату по отчетам прошлой недели:\n\n"
+    msg += format_projects(payments)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
+
+
+async def weekly_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    projects = get_random_projects()
+    msg = (
+        "📩 Завершается неделя. @ellobodefuego, подтвердите, пожалуйста, что отчеты сданы:\n\n"
+    )
+    msg += format_projects(projects)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
 
 
 if __name__ == "__main__":
-    run_bot()
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("test_5days", test_5days))
+    app.add_handler(CommandHandler("test_today", test_today))
+    app.add_handler(CommandHandler("weekly_start", weekly_start))
+    app.add_handler(CommandHandler("weekly_end", weekly_end))
+
+    app.run_polling()
