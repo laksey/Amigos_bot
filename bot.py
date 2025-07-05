@@ -1,66 +1,92 @@
-import asyncio
-import datetime
 import logging
+import datetime
+import asyncio
 import nest_asyncio
 
-
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+)
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-TOKEN = "8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk"
-CHAT_ID = "-1002152973925"
-
-logging.basicConfig(level=logging.INFO)
+# Настройки логирования
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-async def weekly_start(context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=CHAT_ID, text="🟢 Начало недели. Проверьте задачи и статусы проектов.")
+# ID чата, куда будут приходить уведомления
+CHAT_ID = "YOUR_CHAT_ID"  # замените на ID вашего чата
+TOKEN = "YOUR_BOT_TOKEN"  # вставьте сюда токен бота
 
-async def weekly_end(context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=CHAT_ID, text="🔴 Конец недели. Подведите итоги и подтвердите отчеты.")
+# Пример данных (эмуляция таблицы)
+projects = [
+    {"название": "Проект А", "дата_отчета": 5, "ник": "@user1"},
+    {"название": "Проект B", "дата_отчета": 10, "ник": "@user2"},
+    {"название": "Проект C", "дата_отчета": 15, "ник": "@user3"},
+    {"название": "Проект D", "дата_отчета": 25, "ник": "@user4"},
+]
 
-async def notify_today(context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=CHAT_ID, text="📌 Сегодня день сдачи отчета. Пожалуйста, отметьтесь.")
+# Уведомление за 5 дней до даты отчета
+async def notify_5days():
+    today = datetime.datetime.today().day
+    upcoming = [p for p in projects if (p["дата_отчета"] - today) == 5]
+    if upcoming:
+        msg = "📢 Через 5 дней отчет по:\n"
+        for p in upcoming:
+            msg += f"- {p['название']} ({p['ник']})\n"
+        await app.bot.send_message(chat_id=CHAT_ID, text=msg)
 
-async def notify_5days(context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=CHAT_ID, text="⏳ До сдачи отчета осталось 5 дней. Готовьте информацию.")
+# Уведомление в день отчета
+async def notify_today():
+    today = datetime.datetime.today().day
+    current = [p for p in projects if p["дата_отчета"] == today]
+    if current:
+        msg = "📅 Сегодня нужно сдать отчет:\n"
+        for p in current:
+            msg += f"- {p['название']} ({p['ник']})\n"
+        await app.bot.send_message(chat_id=CHAT_ID, text=msg)
 
-async def scheduler_loop(app: Application):
-    sent_flags = set()
-    while True:
-        now = datetime.datetime.now()
-        key = (now.weekday(), now.hour, now.minute)
+# Команды для ручного запуска
+async def weekly_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🔔 Неделя началась. Погнали!")
 
-        if key not in sent_flags:
-            if now.weekday() == 0 and now.hour == 9 and now.minute == 0:
-                await weekly_start(ContextTypes.DEFAULT_TYPE(application=app))
-                sent_flags.add(key)
+async def weekly_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("✅ Неделя закрыта. Жду отчетов.")
 
-            elif now.weekday() == 4 and now.hour == 18 and now.minute == 0:
-                await weekly_end(ContextTypes.DEFAULT_TYPE(application=app))
-                sent_flags.add(key)
-
-            elif now.day == 10 and now.hour == 12 and now.minute == 0:
-                await notify_today(ContextTypes.DEFAULT_TYPE(application=app))
-                sent_flags.add(key)
-
-            elif now.day == 5 and now.hour == 12 and now.minute == 0:
-                await notify_5days(ContextTypes.DEFAULT_TYPE(application=app))
-                sent_flags.add(key)
-
-        await asyncio.sleep(30)
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 ClientOpsBot активирован. Ожидайте автоматических уведомлений.")
-
+# Главная асинхронная функция
 async def main():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    asyncio.create_task(scheduler_loop(app))
-    logger.info("🚀 ClientOpsBot запущен")
-    await app.run_polling()
+    global app
+    app = ApplicationBuilder().token(TOKEN).build()
 
-if __name__ == '__main__':
+    # Команды
+    app.add_handler(CommandHandler("weekly_start", weekly_start))
+    app.add_handler(CommandHandler("weekly_end", weekly_end))
+
+    # Планировщик
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(notify_5days, "cron", hour=9)
+    scheduler.add_job(notify_today, "cron", hour=9)
+    scheduler.add_job(lambda: asyncio.create_task(weekly_start_msg()), "cron", day_of_week="mon", hour=9)
+    scheduler.add_job(lambda: asyncio.create_task(weekly_end_msg()), "cron", day_of_week="fri", hour=18)
+    scheduler.start()
+
+    logger.info("Запуск ClientOpsBot...")
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await app.updater.idle()
+
+# Автоматические сообщения в чат
+async def weekly_start_msg():
+    await app.bot.send_message(chat_id=CHAT_ID, text="🔔 *Начало недели!* Не забудьте о задачах.", parse_mode="Markdown")
+
+async def weekly_end_msg():
+    await app.bot.send_message(chat_id=CHAT_ID, text="✅ *Конец недели!* Отчеты, пожалуйста.", parse_mode="Markdown")
+
+# Запуск
+if __name__ == "__main__":
     nest_asyncio.apply()
-asyncio.get_event_loop().run_until_complete(main())
-
+    asyncio.get_event_loop().run_until_complete(main())
