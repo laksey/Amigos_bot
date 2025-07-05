@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # ID чата, куда будут приходить уведомления
 CHAT_ID = "YOUR_CHAT_ID"  # замените на ID вашего чата
-TOKEN = "YOUR_BOT_TOKEN"  # вставьте сюда токен бота
+TOKEN = "8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk"  # вставьте сюда токен бота
 
 # Пример данных (эмуляция таблицы)
 projects = [
