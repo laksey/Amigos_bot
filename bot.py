@@ -1,78 +1,98 @@
-
-import csv
 import datetime
 import asyncio
 from telegram import Bot
-from telegram.ext import ApplicationBuilder, CommandHandler
+from telegram.ext import Application, CommandHandler
+import csv
+import random
 
-TOKEN = "YOUR_BOT_TOKEN"  # Подставь реальный токен
-CHAT_USERNAME = "@ellobodefuego"
-CSV_PATH = "projects.csv"
+TOKEN = "8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk"
+PROJECTS_CSV = "projects.csv"
+ADMIN_NICK = "@ellobodefuego"
 
-def read_projects():
+
+def get_projects():
     projects = []
-    with open(CSV_PATH, newline='', encoding='utf-8') as csvfile:
+    with open(PROJECTS_CSV, newline='', encoding='utf-8') as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            projects.append(row)
+            projects.append({
+                "Проект": row["название проекта"],
+                "Ответственный": row["ответственный (ник тг)"],
+                "Дата": row["дата сдачи"]
+            })
     return projects
 
-def get_upcoming_reports(projects):
+
+def get_this_week_reports():
     today = datetime.date.today()
-    week_end = today + datetime.timedelta(days=(6 - today.weekday()))
-    return [p for p in projects if get_date(p['Дата сдачи']) and today <= get_date(p['Дата сдачи']) <= week_end]
+    return [
+        p for p in get_projects()
+        if int(p["Дата"]) == today.day
+    ]
 
-def get_last_week_reports(projects):
+
+def get_last_week_reports():
     today = datetime.date.today()
-    week_start = today - datetime.timedelta(days=today.weekday() + 7)
-    week_end = week_start + datetime.timedelta(days=6)
-    return [p for p in projects if get_date(p['Дата сдачи']) and week_start <= get_date(p['Дата сдачи']) <= week_end]
+    last_week = today - datetime.timedelta(days=7)
+    return [
+        p for p in get_projects()
+        if int(p["Дата"]) == last_week.day
+    ]
 
-def get_date(date_str):
-    try:
-        return datetime.datetime.strptime(date_str, "%d.%m.%Y").date()
-    except:
-        return None
 
-async def send_start_of_week(context):
-    projects = read_projects()
-    upcoming = get_upcoming_reports(projects)
-    past = get_last_week_reports(projects)
+async def send_monday_report(update, context):
+    this_week = get_this_week_reports()
+    last_week = get_last_week_reports()
 
-    msg = "📝 На этой неделе нужно сдать отчеты:
-"
-    for p in upcoming:
-        msg += f"- {p['Название проекта']} (ответственный {p['Ответственный']}, до {p['Дата сдачи']})
-"
+    msg = "📝 На этой неделе нужно сдать отчеты:\n"
+    for p in this_week:
+        msg += f"— *{p['Проект']}* ({p['Ответственный']})\n"
 
-    msg += "
-💰 Напомни клиенту об оплате по проектам:
-"
-    for p in past:
-        msg += f"- {p['Название проекта']} (ответственный {p['Ответственный']})
-"
+    msg += "\n💸 Напоминание об оплате по проектам с отчетами на прошлой неделе:\n"
+    for p in last_week:
+        msg += f"— *{p['Проект']}* ({p['Ответственный']})\n"
 
-    await context.bot.send_message(chat_id=context.job.chat_id, text=msg)
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=msg,
+        parse_mode="Markdown"
+    )
 
-async def send_end_of_week(context):
-    projects = read_projects()
-    msg = f"📅 Завершается неделя. {CHAT_USERNAME}, подтверди пожалуйста, что отчеты сданы:
-"
-    for p in get_upcoming_reports(projects):
-        msg += f"- {p['Название проекта']} (ответственный {p['Ответственный']})
-"
 
-    await context.bot.send_message(chat_id=context.job.chat_id, text=msg)
+async def send_confirmation_request(update, context):
+    last_week = get_last_week_reports()
+    msg = f"🔁 Завершается неделя. {ADMIN_NICK}, подтверди, пожалуйста, что отчеты сданы:\n"
+    for p in last_week:
+        msg += f"— *{p['Проект']}* ({p['Ответственный']})\n"
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=msg,
+        parse_mode="Markdown"
+    )
 
-async def start(update, context):
-    await update.message.reply_text("Бот активирован. Отчеты будут отправляться автоматически.")
+
+def test_random_data():
+    # Генерация случайных проектов для отладки
+    with open(PROJECTS_CSV, 'w', newline='', encoding='utf-8') as csvfile:
+        fieldnames = ["название проекта", "ответственный (ник тг)", "дата сдачи"]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for i in range(5):
+            writer.writerow({
+                "название проекта": f"Проект {i+1}",
+                "ответственный (ник тг)": f"@user{i+1}",
+                "дата сдачи": str(random.randint(1, 31))
+            })
+
 
 async def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    await app.start()
-    await app.updater.start_polling()
-    await app.updater.idle()
+    test_random_data()
+
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", send_monday_report))
+    application.add_handler(CommandHandler("confirm", send_confirmation_request))
+    await application.run_polling()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
