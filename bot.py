@@ -1,6 +1,8 @@
 import asyncio
 import datetime
 import logging
+import nest_asyncio
+
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -59,4 +61,6 @@ async def main():
     await app.run_polling()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    nest_asyncio.apply()
+asyncio.get_event_loop().run_until_complete(main())
+
