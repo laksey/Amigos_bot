@@ -1,6 +1,3 @@
-Вот обновлённый код для Telegram-бота `ClientOpsBot`, соответствующий вашему ТЗ:
-
-```python
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import logging
@@ -69,14 +66,3 @@ async def main():
 if __name__ == "__main__":
     nest_asyncio.apply()
     asyncio.run(main())
-```
-
-📌 **Что делает код:**
-
-* Удаляет функционал повтора сообщений.
-* Обрабатывает команды: `/start`, `/test_5days`, `/test_today`, `/report_1`, `/report_5`.
-* Готов к развертыванию в BotFuzzer, Yandex Cloud, Heroku или на любом другом Python-хостинге.
-
-🔧 **Важно:** Замените `"YOUR_BOT_TOKEN"` на ваш реальный токен Telegram-бота.
-
-Готов передать архив или docker-версию по запросу.
