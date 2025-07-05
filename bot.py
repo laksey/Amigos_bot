@@ -1,9 +1,8 @@
 import datetime
-import asyncio
-from telegram import Bot
-from telegram.ext import Application, CommandHandler
-import csv
 import random
+import csv
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 TOKEN = "8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk"
 PROJECTS_CSV = "projects.csv"
@@ -23,20 +22,14 @@ def get_projects():
     return projects
 
 
-def get_this_week_reports():
+def get_reports_by_day(target_day: int):
+    return [p for p in get_projects() if int(p["Дата"]) == target_day]
+
+
+async def send_monday_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.date.today()
-    return [p for p in get_projects() if int(p["Дата"]) == today.day]
-
-
-def get_last_week_reports():
-    today = datetime.date.today()
-    last_week = today - datetime.timedelta(days=7)
-    return [p for p in get_projects() if int(p["Дата"]) == last_week.day]
-
-
-async def send_monday_report(update, context):
-    this_week = get_this_week_reports()
-    last_week = get_last_week_reports()
+    this_week = get_reports_by_day(today.day)
+    last_week = get_reports_by_day((today - datetime.timedelta(days=7)).day)
 
     msg = "📝 На этой неделе нужно сдать отчеты:\n"
     for p in this_week:
@@ -46,23 +39,17 @@ async def send_monday_report(update, context):
     for p in last_week:
         msg += f"— *{p['Проект']}* ({p['Ответственный']})\n"
 
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=msg,
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 
-async def send_confirmation_request(update, context):
-    last_week = get_last_week_reports()
+async def send_confirmation_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    last_week = get_reports_by_day((datetime.date.today() - datetime.timedelta(days=7)).day)
+
     msg = f"🔁 Завершается неделя. {ADMIN_NICK}, подтверди, пожалуйста, что отчеты сданы:\n"
     for p in last_week:
         msg += f"— *{p['Проект']}* ({p['Ответственный']})\n"
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=msg,
-        parse_mode="Markdown"
-    )
+
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 
 def test_random_data():
@@ -78,18 +65,14 @@ def test_random_data():
             })
 
 
-async def main():
+def run_bot():
     test_random_data()
 
-    application = Application.builder().token(TOKEN).build()
-    application.add_handler(CommandHandler("start", send_monday_report))
-    application.add_handler(CommandHandler("confirm", send_confirmation_request))
-    await application.run_polling()
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", send_monday_report))
+    app.add_handler(CommandHandler("confirm", send_confirmation_request))
+    app.run_polling()
 
 
-# Проверка окружения
 if __name__ == "__main__":
-    try:
-        asyncio.get_running_loop().create_task(main())
-    except RuntimeError:
-        asyncio.run(main())
+    run_bot()
