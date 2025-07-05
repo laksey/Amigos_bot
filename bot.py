@@ -1,104 +1,170 @@
-import csv
+import logging
+import pandas as pd
 import datetime
 import asyncio
-from telegram import Bot
-from telegram.ext import ApplicationBuilder, CommandHandler
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+# --- Конфигурация ---
 TOKEN = "8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk"
-CHAT_ID_FILE = "chat_id.txt"
 CSV_FILE = "projects.csv"
+ADMIN_NICK = "@ellobodefuego"
 
-async def send_message(bot: Bot, text: str):
-    try:
-        with open(CHAT_ID_FILE, "r") as f:
-            chat_id = f.read().strip()
-        await bot.send_message(chat_id=chat_id, text=text, parse_mode='Markdown')
-    except Exception as e:
-        print(f"Error sending message: {e}")
+# --- Логирование ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
+# --- Загрузка проектов ---
 def load_projects():
+    df = pd.read_csv(CSV_FILE)
+    df["Дата отчета проекта"] = pd.to_datetime(df["Дата отчета проекта"], errors='coerce', dayfirst=True)
+    return df.dropna(subset=["Дата отчета проекта"])
+
+# --- Формирование сообщений ---
+def get_weekly_start_message():
+    df = load_projects()
     today = datetime.date.today()
-    projects_today = []
-    projects_5days = []
-    projects_week = []
-    projects_lastweek = []
+    start_of_week = today
+    end_of_week = today + datetime.timedelta(days=6 - today.weekday())
 
-    with open(CSV_FILE, newline='', encoding='utf-8') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            project = row['название проекта']
-            user = row['ответственный (ник тг)']
-            date_str = row['дата сдачи']
-            try:
-                day = int(date_str)
-                report_date = datetime.date(today.year, today.month, min(day, 28))
-            except:
-                continue
+    upcoming = df[
+        (df["Дата отчета проекта"].dt.date >= start_of_week) &
+        (df["Дата отчета проекта"].dt.date <= end_of_week)
+    ]
 
-            delta = (report_date - today).days
+    if upcoming.empty:
+        return "📝 На этой неделе нет отчетов для сдачи."
 
-            if delta == 0:
-                projects_today.append((project, user))
-            if delta == 5:
-                projects_5days.append((project, user))
-            if 0 <= delta <= 6:
-                projects_week.append((project, user))
-            if -7 <= delta < 0:
-                projects_lastweek.append((project, user))
+    lines = [f"📝 *На этой неделе нужно сдать отчеты:*"]
+    for _, row in upcoming.iterrows():
+        lines.append(f"— {row['Название проекта']} — {row['Ответственный (ник Telegram)']} — {row['Дата отчета проекта'].date()}")
 
-    return projects_today, projects_5days, projects_week, projects_lastweek
+    return "\n".join(lines)
 
-async def weekly_start(app):
-    bot = app.bot
-    _, _, week, unpaid = load_projects()
-    msg = "📝 *На этой неделе нужно сдать отчеты:*
-" + "\n".join([f"- *{p}* (@{u})" for p, u in week])
-    if unpaid:
-        msg += "\n\n💰 *Необходимо напомнить об оплате по проектам:*\n" + "\n".join([f"- *{p}* (@{u})" for p, u in unpaid])
-    await send_message(bot, msg)
+def get_weekly_end_message():
+    df = load_projects()
+    today = datetime.date.today()
+    end_of_last_week = today - datetime.timedelta(days=today.weekday() + 1)
+    start_of_last_week = end_of_last_week - datetime.timedelta(days=6)
 
-async def weekly_end(app):
-    bot = app.bot
-    _, _, _, unpaid = load_projects()
-    msg = "📌 Завершается неделя. @ellobodefuego, подтвердите, пожалуйста, что следующие отчеты были отправлены:\n"
-    msg += "\n".join([f"- *{p}* (@{u})" for p, u in unpaid])
-    await send_message(bot, msg)
+    closed = df[
+        (df["Дата отчета проекта"].dt.date >= start_of_last_week) &
+        (df["Дата отчета проекта"].dt.date <= end_of_last_week)
+    ]
 
-async def test_start(update, context):
-    await weekly_start(context.application)
+    if closed.empty:
+        return "📌 За прошлую неделю не было отчетов."
 
-async def test_end(update, context):
-    await weekly_end(context.application)
+    lines = [f"📌 *{ADMIN_NICK}, подтвердите отправку отчетов по проектам:*"]
+    for _, row in closed.iterrows():
+        lines.append(f"— {row['Название проекта']} — {row['Ответственный (ник Telegram)']} — {row['Дата отчета проекта'].date()}")
 
-async def start(update, context):
-    chat_id = str(update.effective_chat.id)
-    with open(CHAT_ID_FILE, "w") as f:
-        f.write(chat_id)
+    return "\n".join(lines)
+
+def get_today_reminders():
+    df = load_projects()
+    today = datetime.date.today()
+
+    due_today = df[df["Дата отчета проекта"].dt.date == today]
+
+    messages = []
+    for _, row in due_today.iterrows():
+        messages.append(f"📍 Сегодня срок сдачи отчета по проекту *{row['Название проекта']}* — {row['Ответственный (ник Telegram)']}")
+
+    return messages
+
+def get_5days_reminders():
+    df = load_projects()
+    target_date = datetime.date.today() + datetime.timedelta(days=5)
+
+    due_soon = df[df["Дата отчета проекта"].dt.date == target_date]
+
+    messages = []
+    for _, row in due_soon.iterrows():
+        messages.append(f"⏳ Через 5 дней отчет по проекту *{row['Название проекта']}* — {row['Ответственный (ник Telegram)']}")
+
+    return messages
+
+# --- Команды ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Привет! Я — ClientOpsBot.\n\n"
-        "Я буду напоминать аккаунт-менеджерам об отчетах по проектам:\n"
-        "• За 5 дней до даты сдачи\n"
-        "• В день сдачи отчета\n"
-        "• Автоматический отчет по понедельникам и пятницам\n\n"
-        "Для теста используйте:\n"
-        "/test_start — понедельник\n"
-        "/test_end — пятница"
+        """👋 Привет! Я — ClientOpsBot.
+
+Я буду напоминать аккаунт-менеджерам об отчетах по проектам:
+• За 5 дней до даты сдачи
+• В день сдачи отчета
+
+Чтобы протестировать, используйте:
+/test_5days — проверка напоминания за 5 дней
+/test_today — проверка напоминания в день отчета
+/weekly_start — список отчетов на неделю
+/weekly_end — отчет для подтверждения сдачи
+
+Бот активирован. Ожидайте уведомлений в соответствии с графиком."""
     )
+
+async def test_5days(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msgs = get_5days_reminders()
+    if msgs:
+        for msg in msgs:
+            await update.message.reply_text(msg)
+    else:
+        await update.message.reply_text("Нет отчетов через 5 дней.")
+
+async def test_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msgs = get_today_reminders()
+    if msgs:
+        for msg in msgs:
+            await update.message.reply_text(msg)
+    else:
+        await update.message.reply_text("Сегодня нет отчетов.")
+
+async def weekly_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(get_weekly_start_message(), parse_mode="Markdown")
+
+async def weekly_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(get_weekly_end_message(), parse_mode="Markdown")
+
+# --- Основной запуск ---
+async def scheduled_tasks(application):
+    async def job_5days():
+        messages = get_5days_reminders()
+        for msg in messages:
+            await application.bot.send_message(chat_id=context.bot_data["chat_id"], text=msg)
+
+    async def job_today():
+        messages = get_today_reminders()
+        for msg in messages:
+            await application.bot.send_message(chat_id=context.bot_data["chat_id"], text=msg)
+
+    async def job_weekly_start():
+        await application.bot.send_message(chat_id=context.bot_data["chat_id"], text=get_weekly_start_message(), parse_mode="Markdown")
+
+    async def job_weekly_end():
+        await application.bot.send_message(chat_id=context.bot_data["chat_id"], text=get_weekly_end_message(), parse_mode="Markdown")
+
+    scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
+    scheduler.add_job(job_5days, CronTrigger(hour=9, minute=0))
+    scheduler.add_job(job_today, CronTrigger(hour=9, minute=0))
+    scheduler.add_job(job_weekly_start, CronTrigger(day_of_week="mon", hour=9, minute=0))
+    scheduler.add_job(job_weekly_end, CronTrigger(day_of_week="fri", hour=18, minute=0))
+    scheduler.start()
 
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
+    app.bot_data["chat_id"] = -1000000000000  # замените на актуальный chat_id
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("test_start", test_start))
-    app.add_handler(CommandHandler("test_end", test_end))
+    app.add_handler(CommandHandler("test_5days", test_5days))
+    app.add_handler(CommandHandler("test_today", test_today))
+    app.add_handler(CommandHandler("weekly_start", weekly_start))
+    app.add_handler(CommandHandler("weekly_end", weekly_end))
 
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(lambda: asyncio.create_task(weekly_start(app)), CronTrigger(day_of_week='mon', hour=9))
-    scheduler.add_job(lambda: asyncio.create_task(weekly_end(app)), CronTrigger(day_of_week='fri', hour=18))
-    scheduler.start()
-
+    await scheduled_tasks(app)
     await app.run_polling()
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
