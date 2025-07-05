@@ -7,7 +7,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# Настройка логирования
+# Настройки
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -20,20 +20,20 @@ def read_csv_rows(file_path):
         return list(csv.reader(csvfile))
 
 def load_projects():
-    projects = []
     today = datetime.datetime.now(TIMEZONE).date()
+    projects = []
     for row in read_csv_rows(CSV_FILE):
         name = row[0].strip()
         responsible = row[1].strip()
         try:
-            report_day = int(row[2])
+            report_day = int(row[2].strip())
             report_date = today.replace(day=report_day)
-            if report_date.month != today.month or report_date < today:
+            if report_date < today or report_date.month != today.month:
                 next_month = (today.replace(day=1) + datetime.timedelta(days=32)).replace(day=1)
                 report_date = next_month.replace(day=report_day)
             projects.append({'name': name, 'responsible': responsible, 'date': report_date})
         except Exception as e:
-            logger.warning(f"Ошибка в строке {row}: {e}")
+            logger.warning(f"Ошибка в строке: {row} — {e}")
     return projects
 
 async def notify_5days(context: ContextTypes.DEFAULT_TYPE):
@@ -52,6 +52,7 @@ async def notify_today(context: ContextTypes.DEFAULT_TYPE):
         text += "\n".join([f"• {p['name']} — {p['responsible']}" for p in projects])
         await context.bot.send_message(chat_id=context.job.chat_id, text=text)
 
+# Команды
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "👋 Привет! Я — ClientOpsBot.\n\n"
@@ -76,8 +77,8 @@ async def test_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def report_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.datetime.now(TIMEZONE).date()
-    end_week = today + datetime.timedelta(days=(6 - today.weekday()))
-    projects = [p for p in load_projects() if today <= p['date'] <= end_week]
+    end = today + datetime.timedelta(days=(6 - today.weekday()))
+    projects = [p for p in load_projects() if today <= p['date'] <= end]
     if projects:
         text = "📝 На этой неделе нужно сдать отчеты по проектам:\n"
         text += "\n".join([f"• {p['name']} — {p['responsible']} (до {p['date'].day})" for p in projects])
@@ -99,6 +100,7 @@ async def report_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "В этом месяце нет проектов с отчетами."
     await update.message.reply_text(text)
 
+# Основной запуск
 async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -116,8 +118,7 @@ async def main():
     logger.info("Запуск ClientOpsBot...")
     await app.initialize()
     await app.start()
-    await app.updater.start_polling()
-    await app.updater.idle()
+    await app.run_polling()
 
 # Обертка запуска
 async def runner():
@@ -125,10 +126,8 @@ async def runner():
 
 if __name__ == "__main__":
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(runner())
-        else:
-            loop.run_until_complete(runner())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(runner())
     except Exception as e:
         print("Ошибка запуска:", e)
