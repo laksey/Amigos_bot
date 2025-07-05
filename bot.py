@@ -25,19 +25,13 @@ def get_projects():
 
 def get_this_week_reports():
     today = datetime.date.today()
-    return [
-        p for p in get_projects()
-        if int(p["Дата"]) == today.day
-    ]
+    return [p for p in get_projects() if int(p["Дата"]) == today.day]
 
 
 def get_last_week_reports():
     today = datetime.date.today()
     last_week = today - datetime.timedelta(days=7)
-    return [
-        p for p in get_projects()
-        if int(p["Дата"]) == last_week.day
-    ]
+    return [p for p in get_projects() if int(p["Дата"]) == last_week.day]
 
 
 async def send_monday_report(update, context):
@@ -72,7 +66,6 @@ async def send_confirmation_request(update, context):
 
 
 def test_random_data():
-    # Генерация случайных проектов для отладки
     with open(PROJECTS_CSV, 'w', newline='', encoding='utf-8') as csvfile:
         fieldnames = ["название проекта", "ответственный (ник тг)", "дата сдачи"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -94,5 +87,9 @@ async def main():
     await application.run_polling()
 
 
+# Проверка окружения
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.get_running_loop().create_task(main())
+    except RuntimeError:
+        asyncio.run(main())
