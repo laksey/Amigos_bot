@@ -1,13 +1,9 @@
 import csv
 import datetime
 import logging
-import asyncio
 
 from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, ContextTypes
-)
-
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -25,7 +21,7 @@ def read_csv_rows(file_path):
         return list(csv.reader(csvfile))
 
 def shift_if_weekend(date):
-    while date.weekday() >= 5:  # Сб-Вс
+    while date.weekday() >= 5:
         date += datetime.timedelta(days=1)
     return date
 
@@ -114,8 +110,8 @@ async def report_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "✅ В этом месяце нет проектов с отчетами."
     await update.message.reply_text(text)
 
-# --- Запуск ---
-async def main():
+# --- Главная функция ---
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -130,14 +126,8 @@ async def main():
     scheduler.start()
 
     logger.info("Запуск ClientOpsBot...")
-    await app.run_polling()
+    app.run_polling()  # ВАЖНО: без async/await
 
-# --- ИНИЦИАЛИЗАЦИЯ БЕЗ asyncio.run ---
+# --- Точка входа ---
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(main())
-
-    try:
-        loop.run_forever()
-    except KeyboardInterrupt:
-        print("⏹️ Бот остановлен вручную.")
+    main()
