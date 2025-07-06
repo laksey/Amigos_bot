@@ -24,7 +24,7 @@ def load_projects():
         return df
     except Exception as e:
         logging.error(f"Ошибка чтения CSV: {e}")
-        return pd.DataFrame(columns=['project', 'responsible', 'date'])
+        return pd.DataFrame(columns=['project', 'responsible', 'report_date'])
 
 # Генерация сообщений
 def generate_reminders(days_before):
@@ -33,7 +33,7 @@ def generate_reminders(days_before):
     messages = []
 
     for _, row in df.iterrows():
-        report_day = int(row['date'].day)
+        report_day = int(row['report_date'].day)
         report_date = datetime(today.year, today.month, report_day)
 
         if (report_date - today).days == days_before:
