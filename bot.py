@@ -9,7 +9,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# === Конфигурация ===
+# === Конфиг ===
 BOT_TOKEN = "8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk"
 CSV_FILE = "projects.csv"
 TIMEZONE = datetime.timezone(datetime.timedelta(hours=3))  # Москва
@@ -25,15 +25,13 @@ def load_projects():
         reader = csv.DictReader(f)
         for row in reader:
             try:
-                date = datetime.datetime.strptime(row["Дата отчета проекта"], "%d").replace(
-                    year=datetime.datetime.now().year,
-                    month=datetime.datetime.now().month,
-                    tzinfo=TIMEZONE,
-                )
+                day = int(row["Дата отчета проекта"])
+                today = datetime.datetime.now(TIMEZONE)
+                date = datetime.date(today.year, today.month, day)
                 projects.append({
                     "name": row["Название проекта"],
                     "responsible": row["Ответственный"],
-                    "date": date.date(),
+                    "date": date,
                 })
             except Exception as e:
                 logger.warning(f"Ошибка в строке CSV: {row} — {e}")
@@ -41,7 +39,7 @@ def load_projects():
 
 # === Команды ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Я ClientOpsBot. Используй команды /report_week или /report_month.")
+    await update.message.reply_text("ClientOpsBot запущен. Команды: /report_week, /report_month")
 
 async def report_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.datetime.now(TIMEZONE).date()
@@ -69,26 +67,17 @@ async def report_month(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "✅ В этом месяце проектов нет."
     await update.message.reply_text(text)
 
-# === Уведомление ===
+# === Уведомления ===
 async def notify(context: ContextTypes.DEFAULT_TYPE, days_before: int):
     today = datetime.datetime.now(TIMEZONE).date()
-    target_date = today + datetime.timedelta(days=days_before)
-    due_projects = [p for p in load_projects() if p["date"] == target_date]
-    for p in due_projects:
-        msg = f"⚠️ Сегодня необходимо отправить отчет по проекту {p['name']}.\nОтветственный: {p['responsible']}"
-        await context.bot.send_message(chat_id="@your_channel_or_user", text=msg)  # Заменить на актуальный chat_id
+    target = today + datetime.timedelta(days=days_before)
+    projects = [p for p in load_projects() if p["date"] == target]
+    for p in projects:
+        msg = f"📢 Напоминание: отчет по {p['name']} через {days_before} дней. Ответственный: {p['responsible']}"
+        await context.bot.send_message(chat_id=p["responsible"], text=msg)
 
-# === Запуск ===
-async def run_bot(app):
-    await app.initialize()
-    await app.start()
-    logger.info("✅ ClientOpsBot запущен.")
-    await app.updater.start_polling()
-    await app.updater.idle()
-
-if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-
+# === Главная асинхронная точка входа ===
+async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # Команды
@@ -102,6 +91,9 @@ if __name__ == "__main__":
     scheduler.add_job(notify, CronTrigger(day_of_week="fri", hour=9), kwargs={"context": app, "days_before": 0})
     scheduler.start()
 
-    # Запуск
-    loop.create_task(run_bot(app))
-    loop.run_forever()
+    logger.info("✅ ClientOpsBot запущен.")
+    await app.run_polling()
+
+# === Запуск ===
+if __name__ == "__main__":
+    asyncio.run(main())
