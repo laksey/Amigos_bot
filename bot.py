@@ -4,7 +4,7 @@ import logging
 import asyncio
 
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import Application, ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CSV_FILE = 'projects.csv'
-TIMEZONE = datetime.timezone(datetime.timedelta(hours=3))  # Москва
+TIMEZONE = datetime.timezone(datetime.timedelta(hours=3))
 BOT_TOKEN = "8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk"
 
 # === Загрузка проектов ===
@@ -95,8 +95,18 @@ async def report_month(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "✅ В этом месяце проектов нет."
     await update.message.reply_text(text)
 
-# === Главная функция ===
-async def main():
+# === Главная асинхронная логика запуска ===
+async def run_bot(app: Application):
+    await app.initialize()
+    await app.start()
+    logger.info("✅ ClientOpsBot запущен.")
+    await app.updater.start_polling()
+    await app.updater.idle()
+
+# === Точка входа ===
+if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -110,9 +120,5 @@ async def main():
     scheduler.add_job(notify, CronTrigger(day_of_week='fri', hour=9), kwargs={"context": app, "days_before": 0})
     scheduler.start()
 
-    logger.info("✅ ClientOpsBot запущен.")
-    await app.run_polling()
-
-# === Точка входа ===
-if __name__ == "__main__":
-    asyncio.run(main())
+    loop.create_task(run_bot(app))
+    loop.run_forever()
