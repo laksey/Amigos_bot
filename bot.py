@@ -1,89 +1,44 @@
+import nest_asyncio
+nest_asyncio.apply()
+
 import logging
-import asyncio
 import pandas as pd
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
-import pytz
+import asyncio
 
-# Конфигурация
-BOT_TOKEN = '8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk'
-TIMEZONE = pytz.timezone("Europe/Moscow")
-CSV_FILE = "projects.csv"
-ADMIN_TELEGRAM = "@ellobodefuego"
+# Настройки
+TOKEN = '8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk'
+CSV_FILE = 'projects.csv'
+TIMEZONE = 'Europe/Moscow'
 
-# Логирование
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Загрузка данных
+# Чтение CSV
 def load_projects():
     try:
         df = pd.read_csv(CSV_FILE)
-        df['date'] = pd.to_datetime(df['date'], errors='coerce')
-        df.dropna(subset=['date'], inplace=True)
+        df['date'] = pd.to_datetime(df['date'], format='%d')  # только число
         return df
     except Exception as e:
         logging.error(f"Ошибка чтения CSV: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(columns=['project', 'responsible', 'date'])
 
-# Уведомления
-async def notify_projects(context: ContextTypes.DEFAULT_TYPE, diff_days=5):
+# Генерация сообщений
+def generate_reminders(days_before):
+    today = datetime.now()
     df = load_projects()
-    today = datetime.now(TIMEZONE).date()
-    target_date = today + timedelta(days=diff_days)
+    messages = []
 
     for _, row in df.iterrows():
-        if row['date'].date() == target_date:
-            await context.bot.send_message(chat_id=row['chat_id'],
-                text=f"⏰ Напоминание: через {diff_days} дней сдача отчета по проекту: *{row['project']}*",
-                parse_mode="Markdown")
+        report_day = int(row['date'].day)
+        report_date = datetime(today.year, today.month, report_day)
 
-async def notify_today(context: ContextTypes.DEFAULT_TYPE):
-    df = load_projects()
-    today = datetime.now(TIMEZONE).date()
-
-    for _, row in df.iterrows():
-        if row['date'].date() == today:
-            await context.bot.send_message(chat_id=row['chat_id'],
-                text=f"📅 Сегодня день сдачи отчета по проекту: *{row['project']}*",
-                parse_mode="Markdown")
-
-async def report_1(context: ContextTypes.DEFAULT_TYPE):
-    df = load_projects()
-    today = datetime.now(TIMEZONE).date()
-    end = today + timedelta(days=7)
-    upcoming = df[(df['date'].dt.date >= today) & (df['date'].dt.date <= end)]
-
-    if upcoming.empty:
-        text = "🔍 На этой неделе отчеты не запланированы."
-    else:
-        lines = ["📌 Отчеты на этой неделе:"]
-        for _, row in upcoming.iterrows():
-            lines.append(f"• {row['project']} — {row['date'].date()}")
-        lines.append("\n❗ Не забудьте напомнить клиентам об оплате.")
-
-        text = "\n".join(lines)
-
-    await context.bot.send_message(chat_id=ADMIN_TELEGRAM, text=text)
-
-async def report_5(context: ContextTypes.DEFAULT_TYPE):
-    df = load_projects()
-    today = datetime.now(TIMEZONE).date()
-    sent = df[df['date'].dt.date <= today]
-
-    if sent.empty:
-        text = "ℹ️ На этой неделе отчеты не отправлялись."
-    else:
-        lines = ["✅ На этой неделе были сданы отчеты по:"]
-        for _, row in sent.iterrows():
-            lines.append(f"• {row['project']} — {row['date'].date()}")
-        lines.append(f"\n{ADMIN_TELEGRAM}, подтвердите, что все отчеты были отправлены.")
-
-        text = "\n".join(lines)
-
-    await context.bot.send_message(chat_id=ADMIN_TELEGRAM, text=text)
+        if (report_date - today).days == days_before:
+            messages.append(f"⚠️ Сегодня необходимо отправить отчет по проекту {row['project']}.\nОтветственный: {row['responsible']}")
+    return messages
 
 # Команды
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,43 +49,75 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• В день сдачи отчета\n\n"
         "Чтобы протестировать, используйте:\n"
         "/test_5days — проверка напоминания за 5 дней\n"
-        "/test_today — проверка напоминания в день отчета\n\n"
-        "Бот активирован. Ожидайте уведомлений в соответствии с графиком."
+        "/test_today — проверка напоминания в день отчета\n"
+        "/report_1 — отчёт по предстоящим отчетам\n"
+        "/report_5 — итоговый отчет недели"
     )
 
 async def test_5days(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ Тест напоминания за 5 дней выполнен.")
-    await notify_projects(context, diff_days=5)
+    msgs = generate_reminders(5)
+    if msgs:
+        for msg in msgs:
+            await update.message.reply_text(msg)
+    else:
+        await update.message.reply_text("На сегодня напоминаний за 5 дней нет.")
 
 async def test_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ Тест напоминания на сегодня выполнен.")
-    await notify_today(context)
+    msgs = generate_reminders(0)
+    if msgs:
+        for msg in msgs:
+            await update.message.reply_text(msg)
+    else:
+        await update.message.reply_text("Сегодня нет отчетов.")
 
-async def test_report_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await report_1(context)
+async def report_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    today = datetime.now()
+    df = load_projects()
+    df['report_date'] = df['date'].apply(lambda d: datetime(today.year, today.month, d.day))
+    week = today + timedelta(days=7)
 
-async def test_report_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await report_5(context)
+    upcoming = df[df['report_date'] <= week]
+    if not upcoming.empty:
+        message = "📅 Предстоящие отчёты на неделе:\n"
+        for _, row in upcoming.iterrows():
+            message += f"• {row['project']} — {row['report_date'].day} числа. Ответственный: {row['responsible']}\n"
+        message += "\n🧾 Напомните клиентам об оплате!"
+    else:
+        message = "На этой неделе нет предстоящих отчетов."
 
-# Основной запуск
+    await update.message.reply_text(message)
+
+async def report_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    df = load_projects()
+    message = "📤 Отчёты, отправленные на этой неделе:\n"
+    for _, row in df.iterrows():
+        message += f"• {row['project']} — {row['responsible']}\n"
+    message += "\nПожалуйста, подтвердите, что все отчеты были отправлены."
+    await update.message.reply_text(message)
+
+# Задачи
+async def send_scheduled_notifications(app, days_before):
+    msgs = generate_reminders(days_before)
+    for msg in msgs:
+        await app.bot.send_message(chat_id='@your_channel_or_chat_id', text=msg)
+
+# Главная функция
 async def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(TOKEN).build()
 
-    # Обработчики команд
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("test_5days", test_5days))
     app.add_handler(CommandHandler("test_today", test_today))
-    app.add_handler(CommandHandler("report_1", test_report_1))
-    app.add_handler(CommandHandler("report_5", test_report_5))
+    app.add_handler(CommandHandler("report_1", report_1))
+    app.add_handler(CommandHandler("report_5", report_5))
 
-    # Планировщик
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
-    scheduler.add_job(notify_projects, trigger=CronTrigger(hour=9, minute=0), kwargs={"context": app.bot, "diff_days": 5}, name="notify_5days")
-    scheduler.add_job(notify_today, trigger=CronTrigger(hour=9, minute=0), kwargs={"context": app.bot}, name="notify_today")
+    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 5)), 'cron', hour=9, minute=0)
+    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 0)), 'cron', hour=9, minute=0)
     scheduler.start()
 
     logging.info("✅ ClientOpsBot запущен.")
     await app.run_polling()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# Запуск
+asyncio.run(main())
