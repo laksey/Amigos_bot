@@ -20,7 +20,7 @@ def read_csv_rows(file_path):
         return list(csv.reader(csvfile))
 
 def shift_if_weekend(date):
-    while date.weekday() >= 5:  # 5=Суббота, 6=Воскресенье
+    while date.weekday() >= 5:
         date += datetime.timedelta(days=1)
     return date
 
@@ -48,30 +48,33 @@ async def notify_5days(context: ContextTypes.DEFAULT_TYPE):
     today = datetime.datetime.now(TIMEZONE).date()
     projects = [p for p in load_projects() if (p['date'] - today).days == 5]
     for p in projects:
-        text = f"🔔 Через 5 дней нужно сдать отчет по проекту {p['name']}.\nОтветственный: {p['responsible']}"
-        await context.bot.send_message(chat_id=context.job.chat_id, text=text)
+        await context.bot.send_message(
+            chat_id=context.job.chat_id,
+            text=f"🔔 Через 5 дней нужно сдать отчет по проекту {p['name']}.\nОтветственный: {p['responsible']}"
+        )
 
 async def notify_today(context: ContextTypes.DEFAULT_TYPE):
     today = datetime.datetime.now(TIMEZONE).date()
     projects = [p for p in load_projects() if p['date'] == today]
     for p in projects:
-        text = f"⚠️ Сегодня необходимо отправить отчет по проекту {p['name']}.\nОтветственный: {p['responsible']}"
-        await context.bot.send_message(chat_id=context.job.chat_id, text=text)
+        await context.bot.send_message(
+            chat_id=context.job.chat_id,
+            text=f"⚠️ Сегодня необходимо отправить отчет по проекту {p['name']}.\nОтветственный: {p['responsible']}"
+        )
 
 # --- Команды ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
+    await update.message.reply_text(
         "👋 Привет! Я — ClientOpsBot.\n\n"
-        "Я буду напоминать аккаунт-менеджерам об отчетах по проектам:\n"
+        "Я буду напоминать аккаунт-менеджерам об отчетах:\n"
         "• За 5 дней до даты сдачи\n"
         "• В день сдачи отчета\n\n"
         "Команды для теста:\n"
-        "/test_5days — напоминание за 5 дней\n"
-        "/test_today — напоминание в день отчета\n"
-        "/report_1 — отчеты на этой неделе + напоминание об оплате\n"
-        "/report_5 — итоговый отчет в пятницу с упоминанием @ellobodefuego"
+        "/test_5days — за 5 дней\n"
+        "/test_today — в день сдачи\n"
+        "/report_1 — на этой неделе\n"
+        "/report_5 — итоги месяца + @ellobodefuego"
     )
-    await update.message.reply_text(text)
 
 async def test_5days(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.job = type("Job", (), {"chat_id": update.message.chat_id})
@@ -86,7 +89,7 @@ async def report_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     end = today + datetime.timedelta(days=(6 - today.weekday()))
     projects = [p for p in load_projects() if today <= p['date'] <= end]
     if projects:
-        text = "🗓 На этой неделе нужно сдать отчеты по проектам:\n"
+        text = "🗓 Отчеты на этой неделе:\n"
         text += "\n".join([f"• {p['name']} — {p['responsible']} (до {p['date'].day})" for p in projects])
         text += "\n\nНапомните клиентам об оплате."
     else:
@@ -106,8 +109,8 @@ async def report_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "✅ В этом месяце нет проектов с отчетами."
     await update.message.reply_text(text)
 
-# --- Запуск ---
-async def launch_bot():
+# --- Запуск бота ---
+async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -124,17 +127,17 @@ async def launch_bot():
     logger.info("Запуск ClientOpsBot...")
     await app.run_polling()
 
+# ⚠️ Без asyncio.run() и loop.run_forever()!
 if __name__ == "__main__":
+    import sys
     import asyncio
 
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    try:
-        loop.create_task(launch_bot())
-        loop.run_forever()
-    except KeyboardInterrupt:
-        print("Бот остановлен вручную.")
+        asyncio.run(main())
+    except RuntimeError as e:
+        if "This event loop is already running" in str(e):
+            logger.warning("Event loop is already running. Using workaround for embedded environment.")
+            loop = asyncio.get_event_loop()
+            loop.create_task(main())
+        else:
+            raise
