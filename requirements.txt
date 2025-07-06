@@ -1,5 +1,5 @@
-pandas
-python-telegram-bot==20.8
-apscheduler
-pytz
 nest_asyncio
+python-telegram-bot==20.6
+apscheduler==3.10.4
+pandas
+pytz
