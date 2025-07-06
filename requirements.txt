@@ -1,4 +1,4 @@
 
-httpx>=0.24.0  # используется внутренне в python-telegram-bot
+httpx~=0.25.0
 python-telegram-bot[asyncio]>=20.0,<21.0
 apscheduler>=3.10,<4.0
