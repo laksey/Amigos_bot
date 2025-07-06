@@ -27,17 +27,35 @@ def load_projects():
         return pd.DataFrame(columns=['project', 'responsible', 'report_date'])
 
 # Генерация сообщений
-def generate_reminders(days_before):
-    today = datetime.now()
-    df = load_projects()
+def generate_reminders(days_before: int) -> list[str]:
+    today = datetime.now(tz).date()
+    try:
+        df = pd.read_csv(CSV_PATH)
+        df['date'] = pd.to_datetime(df['date'], format='%Y-%m-%d').dt.date
+    except Exception as e:
+        logging.error(f"Ошибка чтения CSV: {e}")
+        return [f"❌ Ошибка чтения CSV: {e}"]
+
     messages = []
 
     for _, row in df.iterrows():
-        report_day = int(row['report_date'].day)
-        report_date = datetime(today.year, today.month, report_day)
+        report_date = row['date']
+        if report_date.month != today.month:
+            continue  # Пропускаем другие месяцы
 
-        if (report_date - today).days == days_before:
-            messages.append(f"⚠️ Сегодня необходимо отправить отчет по проекту {row['project']}.\nОтветственный: {row['responsible']}")
+        # ⚠️ Исключаем отчёты, которые уже прошли
+        if report_date < today:
+            continue
+
+        days_until = (report_date - today).days
+
+        if days_before == 0 and days_until == 0:
+            messages.append(f"• {row['project']} — сегодня. Ответственный: {row['responsible']}")
+        elif days_before > 0 and days_until == days_before:
+            messages.append(f"• {row['project']} — {report_date.day} числа. Ответственный: {row['responsible']}")
+
+    if not messages:
+        return ["✅ Сегодня нет отчётов."]
     return messages
 
 # Команды
