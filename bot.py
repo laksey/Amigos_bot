@@ -25,7 +25,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 # === Загрузка CSV ===
 def load_projects():
     projects = []
@@ -43,42 +42,68 @@ def load_projects():
         logger.error(f"Ошибка чтения CSV: {e}")
     return projects
 
-
-# === Уведомление ===
+# === Напоминание ===
 async def notify(context: ContextTypes.DEFAULT_TYPE, days_before: int):
     today = datetime.datetime.now(TIMEZONE).date()
     projects = [p for p in load_projects() if (p['date'] - today).days == days_before]
     for p in projects:
-        text = f"⚠️ Сегодня необходимо отправить отчет по проекту {p['name']}.\nОтветственный: {p['responsible']}"
+        text = f"⚠️ Напоминание: отчет по проекту {p['name']}\nОтветственный: {p['responsible']}"
         await context.bot.send_message(chat_id=context.bot_data["chat_id"], text=text)
-
 
 # === Команды ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.bot_data["chat_id"] = update.effective_chat.id
-    await update.message.reply_text("Бот запущен. Вы будете получать уведомления.")
+    text = (
+        "👋 Привет! Я — ClientOpsBot.\n\n"
+        "Я буду напоминать аккаунт-менеджерам об отчетах по проектам:\n"
+        "• За 5 дней до даты сдачи\n"
+        "• В день сдачи отчета\n\n"
+        "Чтобы протестировать, используйте:\n"
+        "/test_5days — проверка напоминания за 5 дней\n"
+        "/test_today — проверка напоминания в день отчета\n\n"
+        "Бот активирован. Ожидайте уведомлений в соответствии с графиком."
+    )
+    await update.message.reply_text(text)
 
+async def test_5days(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await notify(context=context, days_before=5)
 
-async def report_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def test_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await notify(context=context, days_before=0)
+
+async def report_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.datetime.now(TIMEZONE).date()
     end = today + datetime.timedelta(days=7)
     projects = [p for p in load_projects() if today <= p['date'] <= end]
     if projects:
         text = "📌 Отчеты на этой неделе:\n" + "\n".join(
             [f"• {p['name']} — {p['responsible']} (до {p['date'].strftime('%d.%m')})" for p in projects])
+        text += "\n\n🟡 Не забудьте напомнить клиентам об оплате."
     else:
-        text = "✅ На этой неделе ничего нет."
+        text = "✅ На этой неделе отчетов нет."
     await update.message.reply_text(text)
 
+async def report_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    today = datetime.datetime.now(TIMEZONE).date()
+    start = today - datetime.timedelta(days=6)
+    projects = [p for p in load_projects() if start <= p['date'] <= today]
+    if projects:
+        text = "📤 Подтвердите, что отчеты отправлены по этим проектам:\n" + "\n".join(
+            [f"• {p['name']} — {p['responsible']} (до {p['date'].strftime('%d.%m')})" for p in projects])
+    else:
+        text = "✅ За эту неделю отчетов не было."
+    await update.message.reply_text(text)
 
 # === Главная точка входа ===
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("report_week", report_week))
+    app.add_handler(CommandHandler("test_5days", test_5days))
+    app.add_handler(CommandHandler("test_today", test_today))
+    app.add_handler(CommandHandler("report_1", report_1))
+    app.add_handler(CommandHandler("report_5", report_5))
 
-    # Планировщик
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     scheduler.add_job(notify, CronTrigger(day_of_week='mon', hour=9), kwargs={"context": app, "days_before": 5})
     scheduler.add_job(notify, CronTrigger(day_of_week='fri', hour=9), kwargs={"context": app, "days_before": 0})
@@ -87,7 +112,5 @@ def main():
     logger.info("✅ ClientOpsBot запущен.")
     app.run_polling()
 
-
-# === Запуск без asyncio.run() ===
 if __name__ == "__main__":
     main()
