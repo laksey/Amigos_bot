@@ -1,4 +1,4 @@
-
-httpx~=0.25.0
-python-telegram-bot[asyncio]>=20.0,<21.0
-apscheduler>=3.10,<4.0
+python-telegram-bot==20.6
+apscheduler
+pytz
+openpyxl
