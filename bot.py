@@ -14,10 +14,15 @@ CSV_FILE = 'projects.csv'
 TIMEZONE = datetime.timezone(datetime.timedelta(hours=3))  # Москва
 BOT_TOKEN = "8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk"
 
-# --- Чтение данных ---
+# --- Утилиты ---
 def read_csv_rows(file_path):
     with open(file_path, newline='', encoding='utf-8') as csvfile:
         return list(csv.reader(csvfile))
+
+def shift_if_weekend(date):
+    while date.weekday() >= 5:  # 5=Суббота, 6=Воскресенье
+        date += datetime.timedelta(days=1)
+    return date
 
 def load_projects():
     today = datetime.datetime.now(TIMEZONE).date()
@@ -27,10 +32,12 @@ def load_projects():
         responsible = row[1].strip()
         try:
             report_day = int(row[2].strip())
-            report_date = today.replace(day=report_day)
-            if report_date < today or report_date.month != today.month:
-                next_month = (today.replace(day=1) + datetime.timedelta(days=32)).replace(day=1)
+            report_date = today.replace(day=1) + datetime.timedelta(days=report_day - 1)
+            report_date = shift_if_weekend(report_date)
+            if report_date < today:
+                next_month = (today.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
                 report_date = next_month.replace(day=report_day)
+                report_date = shift_if_weekend(report_date)
             projects.append({'name': name, 'responsible': responsible, 'date': report_date})
         except Exception as e:
             logger.warning(f"Ошибка в строке: {row} — {e}")
@@ -40,17 +47,15 @@ def load_projects():
 async def notify_5days(context: ContextTypes.DEFAULT_TYPE):
     today = datetime.datetime.now(TIMEZONE).date()
     projects = [p for p in load_projects() if (p['date'] - today).days == 5]
-    if projects:
-        text = "🔔 Напоминание: через 5 дней нужно сдать отчет по проектам:\n"
-        text += "\n".join([f"• {p['name']} — {p['responsible']}" for p in projects])
+    for p in projects:
+        text = f"🔔 Через 5 дней нужно сдать отчет по проекту {p['name']}.\nОтветственный: {p['responsible']}"
         await context.bot.send_message(chat_id=context.job.chat_id, text=text)
 
 async def notify_today(context: ContextTypes.DEFAULT_TYPE):
     today = datetime.datetime.now(TIMEZONE).date()
     projects = [p for p in load_projects() if p['date'] == today]
-    if projects:
-        text = "📅 Сегодня день сдачи отчета по проектам:\n"
-        text += "\n".join([f"• {p['name']} — {p['responsible']}" for p in projects])
+    for p in projects:
+        text = f"⚠️ Сегодня необходимо отправить отчет по проекту {p['name']}.\nОтветственный: {p['responsible']}"
         await context.bot.send_message(chat_id=context.job.chat_id, text=text)
 
 # --- Команды ---
@@ -101,18 +106,16 @@ async def report_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "✅ В этом месяце нет проектов с отчетами."
     await update.message.reply_text(text)
 
-# --- Главная функция ---
+# --- Запуск ---
 async def launch_bot():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Обработчики команд
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("test_5days", test_5days))
     app.add_handler(CommandHandler("test_today", test_today))
     app.add_handler(CommandHandler("report_1", report_1))
     app.add_handler(CommandHandler("report_5", report_5))
 
-    # Планировщик задач
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     scheduler.add_job(notify_5days, CronTrigger(day_of_week='mon', hour=9, minute=0, timezone=TIMEZONE), kwargs={"context": app})
     scheduler.add_job(notify_today, CronTrigger(day_of_week='fri', hour=9, minute=0, timezone=TIMEZONE), kwargs={"context": app})
@@ -124,7 +127,9 @@ async def launch_bot():
     await app.updater.start_polling()
     await app.updater.wait()
 
-# Запуск (не трогаем loop)
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(launch_bot())
+    try:
+        asyncio.get_event_loop().run_until_complete(launch_bot())
+    except KeyboardInterrupt:
+        print("Бот остановлен вручную.")
