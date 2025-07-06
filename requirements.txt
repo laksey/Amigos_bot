@@ -2,3 +2,4 @@ python-telegram-bot==20.6
 openpyxl
 apscheduler==3.10.4
 pytz
+nest_asyncio==1.6.0
