@@ -117,19 +117,13 @@ async def launch_bot():
     app.add_handler(CommandHandler("report_5", report_5))
 
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
-    scheduler.add_job(notify_5days, CronTrigger(day_of_week='mon', hour=9, minute=0, timezone=TIMEZONE), kwargs={"context": app})
-    scheduler.add_job(notify_today, CronTrigger(day_of_week='fri', hour=9, minute=0, timezone=TIMEZONE), kwargs={"context": app})
+    scheduler.add_job(notify_5days, CronTrigger(day_of_week='mon', hour=9, minute=0), kwargs={"context": app})
+    scheduler.add_job(notify_today, CronTrigger(day_of_week='fri', hour=9, minute=0), kwargs={"context": app})
     scheduler.start()
 
     logger.info("Запуск ClientOpsBot...")
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    await app.updater.wait()
+    await app.run_polling()
 
 if __name__ == "__main__":
     import asyncio
-    try:
-        asyncio.get_event_loop().run_until_complete(launch_bot())
-    except KeyboardInterrupt:
-        print("Бот остановлен вручную.")
+    asyncio.run(launch_bot())
