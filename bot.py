@@ -1,125 +1,99 @@
-import logging
-import csv
-import datetime
 import asyncio
-import pytz
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    ContextTypes,
-    CommandHandler,
-)
+import logging
+import pandas as pd
+import datetime
+from pytz import timezone
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# Константы
-BOT_TOKEN = "8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk"
-TIMEZONE = pytz.timezone("Europe/Moscow")
-CSV_PATH = "projects.csv"
-
-# Логирование
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder, ContextTypes,
+    CommandHandler
 )
+
+# === Константы ===
+BOT_TOKEN = "8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk"
+TIMEZONE = timezone("Europe/Moscow")
+
+# === Настройка логирования ===
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Загрузка проектов из CSV
+# === Загрузка проектов ===
 def load_projects():
-    projects = []
     try:
-        with open(CSV_PATH, newline='', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                try:
-                    day = int(row['date'])
-                    report_date = datetime.datetime.now(TIMEZONE).replace(day=1).replace(day=day).date()
-                    projects.append({
-                        "name": row['project'],
-                        "responsible": row['responsible'],
-                        "date": report_date,
-                    })
-                except Exception as e:
-                    logger.error(f"Ошибка разбора даты: {e}")
+        df = pd.read_csv("projects.csv")
+        df['date'] = pd.to_datetime(df['date'], format='%Y-%m-%d')
+        return df.to_dict(orient='records')
     except Exception as e:
         logger.error(f"Ошибка чтения CSV: {e}")
-    return projects
+        return []
 
-# Команды
+# === Напоминание ===
+async def notify(context: ContextTypes.DEFAULT_TYPE, days_before: int):
+    projects = load_projects()
+    today = datetime.datetime.now(TIMEZONE).date()
+    target_date = today + datetime.timedelta(days=days_before)
+
+    for p in projects:
+        if p['date'].date() == target_date:
+            message = f"⚠️ {'Через 5 дней' if days_before == 5 else 'Сегодня'} необходимо отправить отчет по проекту {p['name']}.\nОтветственный: {p['responsible']}"
+            await context.bot.send_message(chat_id=context.application.bot.id, text=message)
+
+# === Команды ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
+    await update.message.reply_text(
         "👋 Привет! Я — ClientOpsBot.\n\n"
         "Я буду напоминать аккаунт-менеджерам об отчетах по проектам:\n"
         "• За 5 дней до даты сдачи\n"
         "• В день сдачи отчета\n\n"
         "Чтобы протестировать, используйте:\n"
         "/test_5days — проверка напоминания за 5 дней\n"
-        "/test_today — проверка напоминания в день отчета\n"
-        "/report_1 — отчет о задачах на неделю\n"
-        "/report_5 — финальный отчет с подтверждением\n\n"
+        "/test_today — проверка напоминания в день отчета\n\n"
         "Бот активирован. Ожидайте уведомлений в соответствии с графиком."
     )
-    await update.message.reply_text(text)
 
 async def test_5days(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await notify(context, days_before=5, test_chat_id=update.message.chat_id)
+    await notify(context, days_before=5)
+    await update.message.reply_text("✅ Тест напоминания за 5 дней выполнен.")
 
 async def test_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await notify(context, days_before=0, test_chat_id=update.message.chat_id)
+    await notify(context, days_before=0)
+    await update.message.reply_text("✅ Тест напоминания на сегодня выполнен.")
 
 async def report_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.datetime.now(TIMEZONE).date()
-    end_of_week = today + datetime.timedelta(days=(6 - today.weekday()))
-    projects = [
-        p for p in load_projects()
-        if today <= p['date'] <= end_of_week
-    ]
+    end = today + datetime.timedelta(days=7)
+    projects = [p for p in load_projects() if today <= p['date'].date() <= end]
+
     if projects:
-        text = "📅 Отчеты на этой неделе:\n" + "\n".join(
+        text = "📌 Проекты на этой неделе:\n" + "\n".join(
             [f"• {p['name']} — {p['responsible']} (до {p['date'].strftime('%d.%m')})" for p in projects]
-        ) + "\n\n⚠️ Не забудьте напомнить клиентам об оплате!"
+        ) + "\n\nНапомните клиентам об оплате."
     else:
-        text = "✅ На этой неделе сдача отчетов не запланирована."
+        text = "✅ На этой неделе отчетов нет."
+
     await update.message.reply_text(text)
 
 async def report_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.datetime.now(TIMEZONE).date()
-    start_of_week = today - datetime.timedelta(days=today.weekday())
-    projects = [
-        p for p in load_projects()
-        if start_of_week <= p['date'] <= today
-    ]
+    start = today - datetime.timedelta(days=6)
+    end = today
+    projects = [p for p in load_projects() if start <= p['date'].date() <= end]
+
     if projects:
-        text = "📥 Отчеты на этой неделе:\n" + "\n".join(
-            [f"• {p['name']} — {p['responsible']} (до {p['date'].strftime('%d.%m')})" for p in projects]
-        ) + "\n\n@ellobodefuego, пожалуйста, подтверди, что все отчеты отправлены."
+        text = "📤 Отчеты за неделю:\n" + "\n".join(
+            [f"• {p['name']} — {p['responsible']} (от {p['date'].strftime('%d.%m')})" for p in projects]
+        ) + "\n\nПожалуйста, подтвердите отправку отчетов."
     else:
-        text = "✅ За эту неделю отчеты не сдавались."
+        text = "✅ На этой неделе не было отчетов."
+
     await update.message.reply_text(text)
 
-# Уведомления
-async def notify(context: ContextTypes.DEFAULT_TYPE, days_before=5, test_chat_id=None):
-    today = datetime.datetime.now(TIMEZONE).date()
-    target_date = today + datetime.timedelta(days=days_before)
-    projects = [
-        p for p in load_projects()
-        if p['date'] == target_date
-    ]
-    if not projects:
-        return
-    for p in projects:
-        msg = (
-            f"⚠️ {'Сегодня' if days_before == 0 else f'Через {days_before} дней'} необходимо отправить отчет по проекту *{p['name']}*.\n"
-            f"Ответственный: {p['responsible']}"
-        )
-        await context.bot.send_message(
-            chat_id=test_chat_id or context.bot_data.get("group_chat_id", p['responsible']),
-            text=msg,
-            parse_mode='Markdown'
-        )
-
-# Главный запуск
-async def main():
+# === Инициализация ===
+async def main_async():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -136,5 +110,8 @@ async def main():
     logger.info("✅ ClientOpsBot запущен.")
     await app.run_polling()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# === Запуск без asyncio.run ===
+import nest_asyncio
+nest_asyncio.apply()
+
+asyncio.get_event_loop().run_until_complete(main_async())
