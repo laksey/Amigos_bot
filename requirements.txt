@@ -1,4 +1,4 @@
 python-telegram-bot==20.6
-apscheduler
-pytz
 openpyxl
+apscheduler==3.10.4
+pytz
