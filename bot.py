@@ -16,7 +16,7 @@ from apscheduler.triggers.cron import CronTrigger
 # === Конфигурация ===
 BOT_TOKEN = "8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk"
 TIMEZONE = timezone("Europe/Moscow")
-PROJECTS_CSV = "projects.csv"  # Пример таблицы с проектами
+PROJECTS_CSV = "projects.csv"
 
 # === Логирование ===
 logging.basicConfig(
@@ -26,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# === Загрузка данных из CSV ===
+# === Загрузка CSV ===
 def load_projects():
     projects = []
     try:
@@ -44,7 +44,7 @@ def load_projects():
     return projects
 
 
-# === Уведомление по дням до дедлайна ===
+# === Уведомление ===
 async def notify(context: ContextTypes.DEFAULT_TYPE, days_before: int):
     today = datetime.datetime.now(TIMEZONE).date()
     projects = [p for p in load_projects() if (p['date'] - today).days == days_before]
@@ -71,24 +71,23 @@ async def report_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
-# === Главная точка запуска ===
-async def main():
+# === Главная точка входа ===
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Обработчики команд
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("report_week", report_week))
 
-    # Планировщик задач
+    # Планировщик
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     scheduler.add_job(notify, CronTrigger(day_of_week='mon', hour=9), kwargs={"context": app, "days_before": 5})
     scheduler.add_job(notify, CronTrigger(day_of_week='fri', hour=9), kwargs={"context": app, "days_before": 0})
     scheduler.start()
 
     logger.info("✅ ClientOpsBot запущен.")
-    await app.run_polling()
+    app.run_polling()
 
 
-# === Точка входа ===
+# === Запуск без asyncio.run() ===
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
