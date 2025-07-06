@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 def load_projects():
     try:
         df = pd.read_csv(CSV_FILE)
-        df['date'] = pd.to_datetime(df['date'], format='%d')  # только число
+        df['report_date'] = pd.to_datetime(df['report_date'], format='%d')  # только число
         return df
     except Exception as e:
         logging.error(f"Ошибка чтения CSV: {e}")
@@ -73,7 +73,7 @@ async def test_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def report_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.now()
     df = load_projects()
-    df['report_date'] = df['date'].apply(lambda d: datetime(today.year, today.month, d.day))
+    df['report_date'] = df['report_date'].apply(lambda d: datetime(today.year, today.month, d.day))
     week = today + timedelta(days=7)
 
     upcoming = df[df['report_date'] <= week]
