@@ -201,7 +201,7 @@ async def main():
     app.add_handler(CommandHandler("report_5", report_5))
     app.add_handler(CommandHandler("test_random", test_random))
 
-        scheduler = AsyncIOScheduler(timezone=TIMEZONE)
+    scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 5)), 'cron', hour=9, minute=0)
     scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 3)), 'cron', hour=9, minute=0)
     scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 1)), 'cron', hour=9, minute=0)
@@ -212,6 +212,7 @@ async def main():
 
     logging.info("✅ ClientOpsBot запущен.")
     await app.run_polling()
+
 
 # Запуск
 asyncio.run(main())
