@@ -180,9 +180,7 @@ async def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("test_5days", test_5days))
     app.add_handler(CommandHandler("test_3days", test_3days))
-    app.add_handler(CommandHandler("test_1day", test_1day))
     app.add_handler(CommandHandler("test_today", test_today))
     app.add_handler(CommandHandler("report_1", report_1))
     app.add_handler(CommandHandler("report_5", report_5))
