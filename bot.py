@@ -135,21 +135,36 @@ async def report_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message)
 
 async def report_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    today = datetime.now(tz).date()
-    df = load_projects()
+    try:
+        tz = pytz.timezone("Europe/Moscow")
+        today = datetime.now(tz)
+        weekday = today.weekday()
 
-    # Фильтрация проектов, у которых дата сдачи прошла (но в этом месяце)
-    filtered = df[(df['report_date'].month == today.month) & (df['report_date'] < today)]
+        # Получаем понедельник и пятницу текущей недели
+        start_of_week = today - timedelta(days=weekday)
+        end_of_week = start_of_week + timedelta(days=4)
 
-    if filtered.empty:
-        await update.message.reply_text("❎ Проектов с отчётом, сданным на прошлой неделе, нет.")
-        return
+        df = load_projects()
+        df["report_date"] = pd.to_datetime(df["report_date"], errors='coerce')
 
-    message = "🗂️ Отчёты, сданные ранее в этом месяце:\n\n"
-    for _, row in filtered.iterrows():
-        message += f"• {row['project']} — {row['report_date'].day} числа. Ответственный: {row['responsible']}\n"
+        filtered = df[
+            (df["report_date"].dt.date >= start_of_week.date()) &
+            (df["report_date"].dt.date <= end_of_week.date())
+        ]
 
-    await update.message.reply_text(message)
+        if filtered.empty:
+            await update.message.reply_text("❌ Нет отчетов на этой рабочей неделе (Пн–Пт).")
+            return
+
+        message = "@ellobodefuego Отчёты, сданные на текущей рабочей неделе:\n\n"
+        for _, row in filtered.iterrows():
+            date_str = row['report_date'].strftime("%d.%m")
+            message += f"• {row['project']} — {date_str}, ответственный: {row['responsible']}\n"
+
+        await update.message.reply_text(message)
+    except Exception as e:
+        logging.error(f"Ошибка в report_5: {e}")
+        await update.message.reply_text("❌ Произошла ошибка при формировании отчёта.")
 
 
 async def test_random(update: Update, context: ContextTypes.DEFAULT_TYPE):
