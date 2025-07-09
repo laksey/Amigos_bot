@@ -84,9 +84,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• За 5, 3, 1 день до даты сдачи\n"
         "• В день сдачи отчета\n\n"
         "Для проверки используйте:\n"
-        "/test_5days — проверка за 5 дней\n"
         "/test_3days — проверка за 3 дня\n"
-        "/test_1day — проверка за 1 день\n"
         "/test_today — проверка в день сдачи\n"
         "/report_1 — предстоящие отчёты\n"
         "/report_5 — отчёты прошлой недели\n"
@@ -105,28 +103,36 @@ async def test_5days(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def test_3days(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await test_reminder(update, context, 3)
 
-async def test_1day(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await test_reminder(update, context, 1)
-
 async def test_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await test_reminder(update, context, 0)
 
 
 async def report_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    today = datetime.now(tz)
+    today = datetime.now(tz).date()
+    weekday = today.weekday()
+
+    # Определяем понедельник и пятницу текущей недели
+    monday = today - timedelta(days=weekday)
+    friday = monday + timedelta(days=4)
+
     df = load_projects()
-    week = today + timedelta(days=7)
-    upcoming = df[df['report_date'] <= week.date()]
 
-    if not upcoming.empty:
-        message = "📅 Предстоящие отчёты на неделе:\n"
-        for _, row in upcoming.iterrows():
-            message += f"• {row['project']} — {row['report_date'].day} числа. Ответственный: {row['responsible']}\n"
-    else:
-        message = "На этой неделе нет предстоящих отчетов."
+    # Фильтрация: дата в пределах рабочей недели и еще не прошла
+    filtered = df[(df['report_date'] >= today) & (df['report_date'] >= monday) & (df['report_date'] <= friday)]
 
+    if filtered.empty:
+        await update.message.reply_text("📭 На этой рабочей неделе нет предстоящих отчетов.")
+        return
+
+    # Сортировка по дате
+    filtered = filtered.sort_values(by='report_date')
+
+    message = "📅 Предстоящие отчёты на этой рабочей неделе (Пн–Пт):\n\n"
+    for _, row in filtered.iterrows():
+        message += f"• {row['project']} — {row['report_date'].day} числа. Ответственный: {row['responsible']}\n"
+
+    message += "\n🔔 Напомните клиентам об оплате!"
     await update.message.reply_text(message)
-
 
 async def report_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.now(tz).date()
