@@ -24,6 +24,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 def save_chat_id(chat_id: int):
     with open(CHAT_ID_FILE, 'w') as f:
         f.write(str(chat_id))
+    logging.info(f"💾 chat_id сохранён: {chat_id}")
 
 def load_chat_id() -> int | None:
     try:
@@ -54,7 +55,6 @@ def generate_reminders(days_before: int) -> list[str]:
 
     for _, row in df.iterrows():
         report_date = row['report_date']
-
         if report_date < today:
             continue
 
@@ -115,7 +115,6 @@ async def report_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     filtered = filtered.sort_values(by='report_date')
-
     message = "📅 Предстоящие отчёты на этой рабочей неделе (Пн–Пт):\n\n"
     for _, row in filtered.iterrows():
         message += f"• {row['project']} — {row['report_date'].day} числа. Ответственный: {row['responsible']}\n"
@@ -163,40 +162,7 @@ async def test_random(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Уведомления
 async def send_scheduled_notifications(app, days_before):
+    logging.info(f"🚀 Отправка напоминаний за {days_before} дней")
     msgs = generate_reminders(days_before)
     chat_id = load_chat_id()
     if not chat_id:
-        logging.warning("❗ chat_id не найден, уведомления не отправлены.")
-        return
-
-    for msg in msgs:
-        await app.bot.send_message(chat_id=chat_id, text=msg)
-
-# Главный запуск
-async def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("test_3days", test_3days))
-    app.add_handler(CommandHandler("test_today", test_today))
-    app.add_handler(CommandHandler("report_1", report_1))
-    app.add_handler(CommandHandler("report_5", report_5))
-    app.add_handler(CommandHandler("test_random", test_random))
-
-    scheduler = AsyncIOScheduler(timezone=TIMEZONE)
-    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 5)), 'cron', hour=9, minute=0)
-    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 3)), 'cron', hour=9, minute=0)
-    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 1)), 'cron', hour=9, minute=0)
-    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 0)), 'cron', hour=9, minute=0)
-    scheduler.add_job(lambda: asyncio.create_task(report_1(app)), 'cron', day_of_week='mon', hour=9, minute=0)
-    scheduler.add_job(lambda: asyncio.create_task(report_5(app)), 'cron', day_of_week='fri', hour=17, minute=30)
-    scheduler.start()
-    logging.info("✅ Планировщик задач запущен.")
-    logging.info("▶️ Запуск Telegram polling...")
-
-    await app.run_polling()
-
-# Запуск приложения (совместимо с Railway)
-if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
