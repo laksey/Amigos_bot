@@ -192,7 +192,7 @@ async def send_scheduled_notifications(app, days_before):
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler(["start", "старт"], start))
+    app.add_handler(CommandHandler(["start", "Start"], start))
     app.add_handler(CommandHandler("test_3days", test_3days))
     app.add_handler(CommandHandler("test_today", test_today))
     app.add_handler(CommandHandler("report_1", report_1))
