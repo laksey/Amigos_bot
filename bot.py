@@ -20,7 +20,6 @@ tz = pytz.timezone(TIMEZONE)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-
 # Работа с chat_id
 def save_chat_id(chat_id: int):
     with open(CHAT_ID_FILE, 'w') as f:
@@ -34,7 +33,6 @@ def load_chat_id() -> int | None:
         logging.error(f"Не удалось загрузить chat_id: {e}")
         return None
 
-
 # Чтение CSV
 def load_projects():
     try:
@@ -46,7 +44,6 @@ def load_projects():
     except Exception as e:
         logging.error(f"Ошибка чтения CSV: {e}")
         return pd.DataFrame(columns=['project', 'responsible', 'report_date'])
-
 
 # Генерация напоминаний
 def generate_reminders(days_before: int) -> list[str]:
@@ -72,7 +69,6 @@ def generate_reminders(days_before: int) -> list[str]:
         return ["✅ Сегодня нет отчётов."]
     return messages
 
-
 # Команды
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -91,7 +87,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/test_random — случайный проект"
     )
 
-
 async def test_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE, days: int):
     msgs = generate_reminders(days)
     for msg in msgs:
@@ -106,41 +101,31 @@ async def test_3days(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def test_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await test_reminder(update, context, 0)
 
-
 async def report_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.now(tz).date()
     weekday = today.weekday()
-
-    # Определяем понедельник и пятницу текущей недели
     monday = today - timedelta(days=weekday)
     friday = monday + timedelta(days=4)
 
     df = load_projects()
-
-    # Фильтрация: дата в пределах рабочей недели и еще не прошла
     filtered = df[(df['report_date'] >= today) & (df['report_date'] >= monday) & (df['report_date'] <= friday)]
 
     if filtered.empty:
         await update.message.reply_text("📭 На этой рабочей неделе нет предстоящих отчетов.")
         return
 
-    # Сортировка по дате
     filtered = filtered.sort_values(by='report_date')
 
     message = "📅 Предстоящие отчёты на этой рабочей неделе (Пн–Пт):\n\n"
     for _, row in filtered.iterrows():
         message += f"• {row['project']} — {row['report_date'].day} числа. Ответственный: {row['responsible']}\n"
-
     message += "\n🔔 Напомните клиентам об оплате!"
     await update.message.reply_text(message)
 
 async def report_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        tz = pytz.timezone("Europe/Moscow")
         today = datetime.now(tz)
         weekday = today.weekday()
-
-        # Получаем понедельник и пятницу текущей недели
         start_of_week = today - timedelta(days=weekday)
         end_of_week = start_of_week + timedelta(days=4)
 
@@ -166,7 +151,6 @@ async def report_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Ошибка в report_5: {e}")
         await update.message.reply_text("❌ Произошла ошибка при формировании отчёта.")
 
-
 async def test_random(update: Update, context: ContextTypes.DEFAULT_TYPE):
     df = load_projects()
     if df.empty:
@@ -176,7 +160,6 @@ async def test_random(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🎲 Случайный проект:\n• {sample['project']} — {sample['report_date'].day} числа. Ответственный: {sample['responsible']}"
     )
-
 
 # Уведомления
 async def send_scheduled_notifications(app, days_before):
@@ -189,8 +172,7 @@ async def send_scheduled_notifications(app, days_before):
     for msg in msgs:
         await app.bot.send_message(chat_id=chat_id, text=msg)
 
-
-# Запуск
+# Главный запуск
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -209,10 +191,12 @@ async def main():
     scheduler.add_job(lambda: asyncio.create_task(report_1(app)), 'cron', day_of_week='mon', hour=9, minute=0)
     scheduler.add_job(lambda: asyncio.create_task(report_5(app)), 'cron', day_of_week='fri', hour=17, minute=30)
     scheduler.start()
+    logging.info("✅ Планировщик задач запущен.")
+    logging.info("▶️ Запуск Telegram polling...")
 
-    logging.info("✅ ClientOpsBot запущен.")
     await app.run_polling()
 
-
-# Запуск
-asyncio.run(main())
+# Запуск приложения (совместимо с Railway)
+if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
