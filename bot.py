@@ -3,8 +3,9 @@ nest_asyncio.apply()
 
 import logging
 import pandas as pd
+import os
 from datetime import datetime, timedelta
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
@@ -12,7 +13,8 @@ import pytz
 import random
 
 # === Настройки ===
-TOKEN = '8095206946:AAFlOJi0BoRr9Z-MJMigWkk6arT9Ck-uhRk'
+# Получаем токен из переменных окружения
+TOKEN = os.environ.get('BOT_TOKEN')  # Токен перенесен в переменные окружения
 CSV_FILE = 'projects.csv'
 CHAT_ID_FILE = 'chat_id.txt'
 TIMEZONE = 'Europe/Moscow'
@@ -184,12 +186,90 @@ async def send_scheduled_notifications(app, days_before):
         return
 
     for msg in msgs:
-        logging.info(f"📤 Отправка: {msg}")
-        await app.bot.send_message(chat_id=chat_id, text=msg)
+        if "Сегодня нет отчётов" not in msg:  # Не отправляем пустые сообщения
+            logging.info(f"📤 Отправка: {msg}")
+            await app.bot.send_message(chat_id=chat_id, text=msg)
+
+
+# === Новые функции для планировщика ===
+async def scheduled_report_1(app):
+    logging.info("🔔 Запуск запланированного отчета по предстоящим задачам")
+    chat_id = load_chat_id()
+    if not chat_id:
+        logging.warning("❗ chat_id не найден, уведомления не отправлены.")
+        return
+    
+    today = datetime.now(tz).date()
+    weekday = today.weekday()
+    monday = today - timedelta(days=weekday)
+    friday = monday + timedelta(days=4)
+
+    df = load_projects()
+    filtered = df[(df['report_date'] >= today) & (df['report_date'] >= monday) & (df['report_date'] <= friday)]
+
+    if filtered.empty:
+        await app.bot.send_message(chat_id=chat_id, text="📭 На этой рабочей неделе нет предстоящих отчетов.")
+        return
+
+    filtered = filtered.sort_values(by='report_date')
+    message = "📅 Предстоящие отчёты на этой рабочей неделе (Пн–Пт):\n\n"
+    for _, row in filtered.iterrows():
+        message += f"• {row['project']} — {row['report_date'].day} числа. Ответственный: {row['responsible']}\n"
+    message += "\n🔔 Напомните клиентам об оплате!"
+    await app.bot.send_message(chat_id=chat_id, text=message)
+
+
+async def scheduled_report_5(app):
+    logging.info("🔔 Запуск запланированного пятничного отчета")
+    chat_id = load_chat_id()
+    if not chat_id:
+        logging.warning("❗ chat_id не найден, уведомления не отправлены.")
+        return
+    
+    try:
+        today = datetime.now(tz)
+        weekday = today.weekday()
+        start_of_week = today - timedelta(days=weekday)
+        end_of_week = start_of_week + timedelta(days=4)
+
+        df = load_projects()
+        df["report_date"] = pd.to_datetime(df["report_date"], errors='coerce')
+
+        filtered = df[
+            (df["report_date"].dt.date >= start_of_week.date()) &
+            (df["report_date"].dt.date <= end_of_week.date())
+        ]
+
+        if filtered.empty:
+            await app.bot.send_message(chat_id=chat_id, text="❌ Нет отчетов на этой рабочей неделе (Пн–Пт).")
+            return
+
+        message = "@ellobodefuego Отчёты, сданные на текущей рабочей неделе:\n\n"
+        for _, row in filtered.iterrows():
+            date_str = row['report_date'].strftime("%d.%m")
+            message += f"• {row['project']} — {date_str}, ответственный: {row['responsible']}\n"
+
+        await app.bot.send_message(chat_id=chat_id, text=message)
+    except Exception as e:
+        logging.error(f"Ошибка в scheduled_report_5: {e}")
+        await app.bot.send_message(chat_id=chat_id, text="❌ Произошла ошибка при формировании отчёта.")
+
+
+# === Проверка наличия токена ===
+def check_token():
+    if not TOKEN:
+        logging.error("❌ Токен бота не найден в переменных окружения!")
+        logging.error("Добавьте переменную окружения BOT_TOKEN в настройках Railway")
+        return False
+    return True
 
 
 # === Главная функция ===
 async def main():
+    # Проверяем наличие токена
+    if not check_token():
+        return
+    
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler(["start", "Start"], start))
@@ -200,20 +280,41 @@ async def main():
     app.add_handler(CommandHandler("test_random", test_random))
 
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
-    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 5)), 'cron', hour=9, minute=0)
-    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 3)), 'cron', hour=9, minute=0)
-    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 1)), 'cron', hour=9, minute=0)
-    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 0)), 'cron', hour=9, minute=0)
-    scheduler.add_job(lambda: asyncio.create_task(report_1(app)), 'cron', day_of_week='mon', hour=9, minute=0)
-    scheduler.add_job(lambda: asyncio.create_task(report_5(app)), 'cron', day_of_week='fri', hour=17, minute=30)
+    
+    # Фиксим планировщик - используем правильные функции для запланированных задач
+    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 5)), 
+                      'cron', hour=9, minute=0, misfire_grace_time=60)
+    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 3)), 
+                      'cron', hour=9, minute=0, misfire_grace_time=60)
+    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 1)), 
+                      'cron', hour=9, minute=0, misfire_grace_time=60)
+    scheduler.add_job(lambda: asyncio.create_task(send_scheduled_notifications(app, 0)), 
+                      'cron', hour=9, minute=0, misfire_grace_time=60)
+    
+    # Фиксим вызовы отчетов через новые специальные функции
+    scheduler.add_job(lambda: asyncio.create_task(scheduled_report_1(app)), 
+                      'cron', day_of_week='mon', hour=9, minute=0, misfire_grace_time=60)
+    scheduler.add_job(lambda: asyncio.create_task(scheduled_report_5(app)), 
+                      'cron', day_of_week='fri', hour=17, minute=30, misfire_grace_time=60)
+    
     scheduler.start()
 
     logging.info("✅ Планировщик задач запущен.")
     logging.info("▶️ Запуск Telegram polling...")
-    await app.run_polling()
+    
+    # Добавляем дополнительное логирование для подтверждения работы бота
+    logging.info(f"⏰ Текущее время: {datetime.now(tz)}")
+    
+    # Запуск веб-хука для Railway вместо обычного polling
+    await app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 # === Запуск на Railway ===
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    try:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("Бот остановлен.")
+    except Exception as e:
+        logging.error(f"Критическая ошибка: {e}")
